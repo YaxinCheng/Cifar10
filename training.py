@@ -29,6 +29,11 @@ def fully_connected(X, neuron_number, name, activate_func=tf.nn.elu, dropout=Tru
         if dropout: result = tf.nn.dropout(result, keep_prob=keep_prob)
         return result
 
+def get_batch_data(data, batch_num, batch_size):
+    lowerbound = (batch_num * batch_size) % len(data)
+    upperbound = lowerbound + batch_size 
+    return data[lowerbound:upperbound]
+
 batch_size = 128
 img_width, img_length = 32, 32
 img_rgb = 3
@@ -42,8 +47,8 @@ graph = tf.Graph()
 with graph.as_default():
     tf_train = tf.placeholder(tf.float32, shape=(batch_size, img_width, img_length, img_rgb))
     tf_train_labels = tf.placeholder(tf.float32, shape=(batch_size,))
-    tf_valid = tf.constant(valid_data)
-    tf_test = tf.constant(test_data)
+    running_mode = tf.placeholder(tf.string, shape=())
+    dropoutCond = tf.equal(running_mode, tf.constant('train'))
     
     with tf.name_scope('conv'):
         conv_weight_1 = tf.Variable(tf.truncate_normal((patch_size, patch_size, img_rgb, 16), stddev=0.1))
@@ -58,8 +63,8 @@ with graph.as_default():
         pool_layer = tf.nn.max_pool(input_conv_layer, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
         after_pooling_size = pool_layer.get_shape()
         input_for_fully = tf.reshape(pool_layer, shape=(after_pooling_size[0], after_pooling_size[1] * after_pooling_size[2] * after_pooling_size[3]))
-        fully_1 = fully_connected(input_for_fully, 512, 'fully_1')
-        fully_2 = fully_connected(fully_1, 256, 'fully_2')
+        fully_1 = tf.where(dropoutCond, fully_connected(input_for_fully, 512, 'fully_1'), fully_connected(input_for_fully, 512, 'fully_1', dropout=False))
+        fully_2 = tf.where(dropoutCond, fully_connected(fully_1, 256, 'fully_2'), fully_connected(fully_1, 256, 'fully_2', dropout=False)) 
         logits = fully_connected(fully_2, num_labels, 'logits', activate_func=None, dropout=False)
 
     with tf.name_scope('loss'):
@@ -71,5 +76,27 @@ with graph.as_default():
 
     with tf.name_scope('eval'):
         correct = tf.nn.in_top_k(logits, tf_train_labels, 1)
-        accuracy = tf.reduce_mean(tf.cast(correct, tf.float32))
+        accuracy = tf.reduce_mean(tf.cast(correct, tf.float32)) 
+
+    with tf.name_scopre('visualization'):
+        loss_s = tf.summary.scalar(running_mode + '_Loss', loss)
+        accu_s = tf.summary.scalar(running_mode + '_Accu', accuracy)
+
+epoches = 1001
+init = tf.global_variables_initializer()
+saver = tf.train.Saver()
+
+with tf.Session() as sess:
+    init.run()
+    for epoch in epoches:
+        for batch in range(train_data.shape() // batch_size):
+            batch_data = get_batch_data(train_data, batch_size=128, batch_num=batch)
+            batch_labels = get_batch_data(train_labels, batch_size=128, batch_num=batch)
+            _, ac, l = sess.run([optimizer, accuracy, loss], feed_dict={tf_train: batch_data, tf_train_labels: batch_labels, learning_rate: 0.01, running_mode: 'train'})
+            # Add ac to the tensorboard
+        valid_ac, valid_l = sess.run([accuracy, loss], feed_dict={tf_train: valid_data, tf_train_labels: valid_data_labels, running_mode:'valid'})
+        # Add valid accu to the tensorboard
+    test_ac, test_l = sess.run([accuracy, loss], feed_dict={tf_train: test_data, tf_train_labels: test_data_labels, running_mode: 'test'})
+    # Add the test accu to the tensorboard
+
 
