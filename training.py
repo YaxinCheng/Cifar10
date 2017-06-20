@@ -1,6 +1,9 @@
 import tensorflow as tf
 from six.moves import cPickle as pickle
 import numpy as np
+from datetime import datetime
+
+logdir = 'tf_logs/run-{}'.format(datetime.utcnow().strftime('%Y%m%d%H%M%S'))
 
 def loadData():
     fileName = 'data/data_batch_{index}' 
@@ -53,13 +56,13 @@ with graph.as_default():
     with tf.name_scope('conv'):
         conv_weight_1 = tf.Variable(tf.truncate_normal((patch_size, patch_size, img_rgb, 16), stddev=0.1))
         conv_biases_1 = tf.Variable(tf.zeros(16)) 
-        conv_weight_2 = tf.Variable(tf.truncate_normal((patch_size, patch_size, 16, 32), stddev=tf.sqrt(4 *2 / (16 + 32))))
+        conv_weight_2 = tf.Variable(tf.truncate_normal((patch_size, patch_size, 16, 32), stddev=tf.sqrt(4 * 2 / (16 + 32))))
         conv_biases_2 = tf.Variable(tf.zeros(32))
 
     with tf.name_scope('dnn'):
-        input_conv_layer = tf.nn.elu(tf.nn.conv2d(tf_train, conv_weight_1, [1, 1, 1, 1], padding='SAME'))
-        pool_layer = tf.nn.max_pool(input_conv_layer, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
-        input_conv_layer = tf.nn.elu(tf.nn.conv2d(pool_layer, conv_weight_2, [1, 1, 1, 1], padding='SAME'))
+        input_conv_layer = tf.nn.elu(tf.nn.conv2d(tf_train, conv_weight_1, [1, 1, 1, 1], padding='SAME') + conv_biases_1)
+        #pool_layer = tf.nn.max_pool(input_conv_layer, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
+        input_conv_layer = tf.nn.elu(tf.nn.conv2d(input_conv_layer, conv_weight_2, [1, 2, 2, 1], padding='SAME') + conv_biases_2)
         pool_layer = tf.nn.max_pool(input_conv_layer, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
         after_pooling_size = pool_layer.get_shape()
         input_for_fully = tf.reshape(pool_layer, shape=(after_pooling_size[0], after_pooling_size[1] * after_pooling_size[2] * after_pooling_size[3]))
@@ -81,8 +84,9 @@ with graph.as_default():
     with tf.name_scopre('visualization'):
         loss_s = tf.summary.scalar(running_mode + '_Loss', loss)
         accu_s = tf.summary.scalar(running_mode + '_Accu', accuracy)
+        file_writer = tf.summary.FileWriter(logdir)
 
-epoches = 1001
+epoches = 101
 init = tf.global_variables_initializer()
 saver = tf.train.Saver()
 
@@ -92,11 +96,18 @@ with tf.Session() as sess:
         for batch in range(train_data.shape() // batch_size):
             batch_data = get_batch_data(train_data, batch_size=128, batch_num=batch)
             batch_labels = get_batch_data(train_labels, batch_size=128, batch_num=batch)
-            _, ac, l = sess.run([optimizer, accuracy, loss], feed_dict={tf_train: batch_data, tf_train_labels: batch_labels, learning_rate: 0.01, running_mode: 'train'})
-            # Add ac to the tensorboard
+            _, ac, l, training_loss, training_accu = sess.run([optimizer, accuracy, loss, loss_s, accu_s], feed_dict={tf_train: batch_data, tf_train_labels: batch_labels, learning_rate: 0.01, running_mode: 'train'})
+            if batch % 100 == 0: 
+                step = epoch * batch_size + batch
+                file_writer.add_summary(training_loss, step)
+                file_writer.add_summary(training_accu, step)
+                valid_ac, valid_l, valid_loss, valid_accu = sess.run([accuracy, loss, loss_s, accus_s], feed_dict={tf_train: valid_data, tf_train_labels: valid_data_labels, running_mode:'valid'})
+                #file_writer.add_summary(valid_loss, step)
+                #file_writer.add_summary(valid_accu, step)
+                print('validation loss: ', valid_l, 'with accuracy:', valid_ac)
         valid_ac, valid_l = sess.run([accuracy, loss], feed_dict={tf_train: valid_data, tf_train_labels: valid_data_labels, running_mode:'valid'})
-        # Add valid accu to the tensorboard
+        print('After all batches: ')
+        print('validation loss: ', valid_l, 'with accuracy:', valid_ac)
+    print('\nTest case:')
     test_ac, test_l = sess.run([accuracy, loss], feed_dict={tf_train: test_data, tf_train_labels: test_data_labels, running_mode: 'test'})
-    # Add the test accu to the tensorboard
-
-
+    print('test loss:', test_l, 'with accuracy:', test_ac)
