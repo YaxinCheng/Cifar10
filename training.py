@@ -2,6 +2,10 @@ import tensorflow as tf
 from six.moves import cPickle as pickle
 import numpy as np
 from datetime import datetime
+import os
+
+if not os.path.exists('tf_logs'): os.makedirs('tf_logs')
+if not os.path.exists('model'): os.makedirs('model')
 
 logdir = 'tf_logs/run-{}'.format(datetime.utcnow().strftime('%Y%m%d%H%M%S'))
 
@@ -84,11 +88,11 @@ with graph.as_default():
     with tf.name_scopre('visualization'):
         loss_s = tf.summary.scalar(running_mode + '_Loss', loss)
         accu_s = tf.summary.scalar(running_mode + '_Accu', accuracy)
-        file_writer = tf.summary.FileWriter(logdir)
 
 epoches = 101
 init = tf.global_variables_initializer()
 saver = tf.train.Saver()
+file_writer = tf.summary.FileWriter(logdir)
 
 with tf.Session() as sess:
     init.run()
@@ -96,19 +100,20 @@ with tf.Session() as sess:
         for batch in range(train_data.shape() // batch_size):
             batch_data = get_batch_data(train_data, batch_size=128, batch_num=batch)
             batch_labels = get_batch_data(train_labels, batch_size=128, batch_num=batch)
-            _, ac, l, training_loss, training_accu = sess.run([optimizer, accuracy, loss, loss_s, accu_s], feed_dict={tf_train: batch_data, tf_train_labels: batch_labels, learning_rate: 0.01, running_mode: 'train'})
+            _, training_loss, training_accu = sess.run([optimizer, loss_s, accu_s], feed_dict={tf_train: batch_data, tf_train_labels: batch_labels, learning_rate: 0.01, running_mode: 'train'})
             if batch % 100 == 0: 
                 step = epoch * batch_size + batch
                 file_writer.add_summary(training_loss, step)
                 file_writer.add_summary(training_accu, step)
-                valid_ac, valid_l, valid_loss, valid_accu = sess.run([accuracy, loss, loss_s, accus_s], feed_dict={tf_train: valid_data, tf_train_labels: valid_data_labels, running_mode:'valid'})
+                valid_loss, valid_accu = sess.run([loss_s, accus_s], feed_dict={tf_train: valid_data, tf_train_labels: valid_data_labels, running_mode:'valid'})
                 file_writer.add_summary(valid_loss, step)
                 file_writer.add_summary(valid_accu, step)
                 print('validation loss: ', valid_l, 'with accuracy:', valid_ac)
         valid_ac, valid_l = sess.run([accuracy, loss], feed_dict={tf_train: valid_data, tf_train_labels: valid_data_labels, running_mode:'valid'})
         print('After all batches: ')
         print('validation loss: ', valid_l, 'with accuracy:', valid_ac)
-        saver.save(sess, '/model/cifar10.ckpt')
+        saver.save(sess, '/model/cifar10_partly.ckpt')
     print('\nTest case:')
     test_ac, test_l = sess.run([accuracy, loss], feed_dict={tf_train: test_data, tf_train_labels: test_data_labels, running_mode: 'test'})
     print('test loss:', test_l, 'with accuracy:', test_ac)
+    saver.save(sess, '/model/cifar10_{}.ckpt'.format(datetime.utcnow().strftime('%Y%m%d%H%M%S')))
