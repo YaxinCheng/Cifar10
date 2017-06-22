@@ -51,8 +51,13 @@ def fully_connected(X, neuron_number, name, activate_func=tf.nn.elu, dropout=Tru
 
 def get_batch_data(data, batch_num, batch_size):
     lowerbound = (batch_num * batch_size) % len(data)
-    upperbound = lowerbound + batch_size 
-    return data[lowerbound:upperbound]
+    if lowerbound + batch_num < len(data):
+        upperbound = lowerbound + batch_size 
+        return data[lowerbound:upperbound]
+    else:
+        first = data[lowerbound:]
+        second = data[:batch_size - len(data) + lowerbound]
+        return np.concatenate((first, second))
 
 batch_size = 128
 img_width, img_length = 32, 32
@@ -75,7 +80,7 @@ with graph.as_default():
     with tf.name_scope('conv'):
         conv_weight_1 = tf.Variable(tf.truncated_normal((patch_size, patch_size, img_rgb, 16), stddev=0.1))
         conv_biases_1 = tf.Variable(tf.zeros(16)) 
-        conv_weight_2 = tf.Variable(tf.truncated_normal((patch_size, patch_size, 16, 32), stddev=tf.sqrt(4 * 2 / (16 + 32))))
+        conv_weight_2 = tf.Variable(tf.truncated_normal((patch_size, patch_size, 16, 32), stddev=0.1))
         conv_biases_2 = tf.Variable(tf.zeros(32))
 
     def model(input, dropout=True):
@@ -93,6 +98,10 @@ with graph.as_default():
             logits = fully_connected(fully_4, num_labels, 'logits', activate_func=None, dropout=False)
             return logits
 
+    def accuracy(logits, labels):
+        correct = tf.nn.in_top_k(logits, labels, 1)
+        return tf.reduce_mean(tf.cast(correct, tf.float32))
+
     with tf.name_scope('loss'):
         logits = model(tf_train)
         loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=tf_train_labels, logits=logits)) 
@@ -106,12 +115,9 @@ with graph.as_default():
         optimizer = tf.train.AdamOptimizer(learning_rate).minimize(loss)
 
     with tf.name_scope('eval'):
-        correct = tf.nn.in_top_k(logits, tf_train_labels, 1)
-        accuracy = tf.reduce_mean(tf.cast(correct, tf.float32)) 
-        correct = tf.nn.in_top_k(v_logits, tf_valid_labels, 1)
-        v_accuracy = tf.reduce_mean(tf.cast(correct, tf.float32))
-        correct = tf.nn.in_top_k(t_logits, tf_test_labels, 1)
-        t_accuracy = tf.reduce_mean(tf.cast(correct, tf.float32))
+        accuracy = accuracy(logits, tr_train_labels) 
+        v_accuracy = accuracy(v_logits, tf_valid_labels)
+        t_accuracy = accuracy(t_logits, tf_test_labels)
 
     with tf.name_scope('visualization'):
         loss_s = tf.summary.scalar('Train_loss', loss)
@@ -121,28 +127,23 @@ with graph.as_default():
 
     saver = tf.train.Saver()
 
-epoches = 10
+epoches = 2000
 file_writer = tf.summary.FileWriter(logdir)
 learning_r = 0.04
 
 with tf.Session(graph=graph) as sess:
     tf.global_variables_initializer().run()
     for epoch in range(epoches):
-        for batch in range(len(train_data) // batch_size):
-            batch_data = get_batch_data(train_data, batch_size=batch_size, batch_num=batch)
-            batch_labels = get_batch_data(train_labels, batch_size=batch_size, batch_num=batch)
-            _, training_loss, training_accu = sess.run([optimizer, loss_s, accu_s], feed_dict={tf_train: batch_data, tf_train_labels: batch_labels, learning_rate: learning_r})
-            if batch % 100 == 0: 
-                step = epoch * batch_size + batch
-                file_writer.add_summary(training_loss, step)
-                file_writer.add_summary(training_accu, step)
-                valid_l, valid_ac, valid_loss, valid_accu = sess.run([v_loss, v_accuracy, loss_v, accu_v])
-                file_writer.add_summary(valid_loss, step)
-                file_writer.add_summary(valid_accu, step)
-                print('validation loss: ', valid_l, 'with accuracy:', valid_ac)
-        valid_ac, valid_l = sess.run([v_accuracy, v_loss])
-        print('After all batches: ')
-        print('validation loss: ', valid_l, 'with accuracy:', valid_ac)
+        batch_data = get_batch_data(train_data, batch_size=batch_size, batch_num=epoch)
+        batch_labels = get_batch_data(train_labels, batch_size=batch_size, batch_num=epoch)
+        _, training_loss, training_accu = sess.run([optimizer, loss_s, accu_s], feed_dict={tf_train: batch_data, tf_train_labels: batch_labels, learning_rate: learning_r})
+        if epoch % 200 == 0: 
+            file_writer.add_summary(training_loss, epoch)
+            file_writer.add_summary(training_accu, epoch)
+            valid_l, valid_ac, valid_loss, valid_accu = sess.run([v_loss, v_accuracy, loss_v, accu_v])
+            file_writer.add_summary(valid_loss, epoch)
+            file_writer.add_summary(valid_accu, epoch)
+            print('validation loss: ', valid_l, 'with accuracy:', valid_ac)
         #saver.save(sess, '/model/')
     print('\nTest case:')
     test_ac, test_l = sess.run([t_accuracy, t_loss])
