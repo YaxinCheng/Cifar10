@@ -8,6 +8,7 @@ if not os.path.exists('tf_logs'): os.makedirs('tf_logs')
 if not os.path.exists('model'): os.makedirs('model')
 
 logdir = 'tf_logs/run-{}'.format(datetime.utcnow().strftime('%Y%m%d%H%M%S'))
+img_width, img_length, img_rgb = 32, 32, 3
 
 def loadData():
     fileName = 'data/data_batch_{index}' 
@@ -24,12 +25,11 @@ def loadData():
     with open('data/test_batch', 'rb') as file:
         rawData = pickle.load(file, encoding='bytes')
         test_data, test_labels = rawData[b'data'], rawData[b'labels']
-    shape = train_data.shape
-    train_data = train_data.reshape((shape[0], 32, 32, 3))#.astype(np.float32)
-    shape = valid_data.shape
-    valid_data = valid_data.reshape((shape[0], 32, 32, 3)).astype(np.float32)
-    shape = test_data.shape
-    test_data = test_data.reshape((shape[0], 32, 32, 3)).astype(np.float32)
+    global img_width, img_length, img_rgb
+    newshape = (-1, img_length, img_width, img_rgb)
+    train_data = train_data.reshape(newshape).astype(np.float32)
+    valid_data = valid_data.reshape(newshape).astype(np.float32)
+    test_data = test_data.reshape(newshape).astype(np.float32)
     train_labels, valid_labels, test_labels = np.array(train_labels), np.array(valid_labels), np.array(test_labels)
     return train_data, train_labels, valid_data, valid_labels, test_data, test_labels
 
@@ -60,10 +60,7 @@ def get_batch_data(data, batch_num, batch_size):
         return np.concatenate((first, second))
 
 batch_size = 128
-img_width, img_length = 32, 32
-img_rgb = 3
-num_labels = 10
-
+num_labels = 10 
 patch_size = 4
 
 train_data, train_labels, valid_data, valid_labels, test_data, test_labels = loadData()
@@ -115,13 +112,13 @@ with graph.as_default():
         optimizer = tf.train.AdamOptimizer(learning_rate).minimize(loss)
 
     with tf.name_scope('eval'):
-        accuracy = accuracy(logits, tr_train_labels) 
+        tr_accuracy = accuracy(logits, tr_train_labels) 
         v_accuracy = accuracy(v_logits, tf_valid_labels)
         t_accuracy = accuracy(t_logits, tf_test_labels)
 
     with tf.name_scope('visualization'):
         loss_s = tf.summary.scalar('Train_loss', loss)
-        accu_s = tf.summary.scalar('Train_accu', accuracy)
+        accu_s = tf.summary.scalar('Train_accu', tr_accuracy)
         loss_v = tf.summary.scalar('Valid_loss', v_loss)
         accu_v = tf.summary.scalar('Valid_accu', v_accuracy)
 
