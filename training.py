@@ -33,25 +33,17 @@ def loadData():
     train_labels, valid_labels, test_labels = np.array(train_labels), np.array(valid_labels), np.array(test_labels)
     return train_data, train_labels, valid_data, valid_labels, test_data, test_labels
 
-all_weights = {}
-all_biases = {} 
 def fully_connected(X, neuron_number, name, activate_func=tf.nn.elu, dropout=True, keep_prob=0.5):
     with tf.name_scope(name):
-        global all_weights
-        global all_biases
         n_inputs = int(X.get_shape()[1])
-        weight_key = '{}/{}'.format(name, 'weights')
-        bias_key = '{}/{}'.format(name, 'biases')
-        if weight_key in all_weights:
-            weights = all_weights[weight_key]
-        else:
-            weights = tf.Variable(tf.truncated_normal((n_inputs, neuron_number), stddev=tf.sqrt(4 * 2 / (n_inputs + neuron_number)), name='weights'))
-            all_weights[weight_key] = weights
-        if bias_key in all_biases:
-            biases = all_biases[bias_key]
-        else:
-            biases = tf.Variable(tf.zeros([neuron_number]), name='biases')
-            all_biases[bias_key] = biases
+        with tf.variable_scope(name) as scope:
+            try:
+                weights = tf.get_variable('weight', shape=(n_inputs, neuron_number), initializer=tf.truncated_normal_initializer(stddev=tf.sqrt(4 * 2 / (n_inputs + neuron_number))))
+                biases = tf.get_variable('biases', shape=(neuron_number,), initializer=tf.constant_initializer(0))
+            except ValueError: 
+                scope.reuse_variables()
+                weights = tf.get_variable('weight')
+                biases = tf.get_variable('biases')
         result = tf.matmul(X, weights) + biases
         if activate_func: result = activate_func(result)
         if dropout: result = tf.nn.dropout(result, keep_prob=keep_prob)
