@@ -33,11 +33,25 @@ def loadData():
     train_labels, valid_labels, test_labels = np.array(train_labels), np.array(valid_labels), np.array(test_labels)
     return train_data, train_labels, valid_data, valid_labels, test_data, test_labels
 
+all_weights = {}
+all_biases = {} 
 def fully_connected(X, neuron_number, name, activate_func=tf.nn.elu, dropout=True, keep_prob=0.5):
     with tf.name_scope(name):
+        global all_weights
+        global all_biases
         n_inputs = int(X.get_shape()[1])
-        weights = tf.Variable(tf.truncated_normal((n_inputs, neuron_number), stddev=tf.sqrt(4 * 2 / (n_inputs + neuron_number)), name='weights'))
-        biases = tf.Variable(tf.zeros([neuron_number]), name='biases')
+        weight_key = '{}/{}'.format(name, 'weights')
+        bias_key = '{}/{}'.format(name, 'biases')
+        if weight_key in all_weights:
+            weights = all_weights[weight_key]
+        else:
+            weights = tf.Variable(tf.truncated_normal((n_inputs, neuron_number), stddev=tf.sqrt(4 * 2 / (n_inputs + neuron_number)), name='weights'))
+            all_weights[weight_key] = weights
+        if bias_key in all_biases:
+            biases = all_biases[bias_key]
+        else:
+            biases = tf.Variable(tf.zeros([neuron_number]), name='biases')
+            all_biases[bias_key] = biases
         result = tf.matmul(X, weights) + biases
         if activate_func: result = activate_func(result)
         if dropout: result = tf.nn.dropout(result, keep_prob=keep_prob)
@@ -64,10 +78,7 @@ with graph.as_default():
     tf_valid = tf.constant(valid_data)
     tf_valid_labels = tf.constant(valid_labels)
     tf_test = tf.constant(test_data)
-    tf_test_labels = tf.constant(test_labels)
-
-    running_mode = tf.placeholder(tf.string, shape=())
-    dropoutCond = tf.equal(running_mode, tf.constant('train'))
+    tf_test_labels = tf.constant(test_labels) 
     
     with tf.name_scope('conv'):
         conv_weight_1 = tf.Variable(tf.truncated_normal((patch_size, patch_size, img_rgb, 16), stddev=0.1))
@@ -75,18 +86,18 @@ with graph.as_default():
         conv_weight_2 = tf.Variable(tf.truncated_normal((patch_size, patch_size, 16, 32), stddev=tf.sqrt(4 * 2 / (16 + 32))))
         conv_biases_2 = tf.Variable(tf.zeros(32))
 
-    def model(input):
+    def model(input, dropout=True):
         with tf.name_scope('dnn'):
             input_conv_layer = tf.nn.elu(tf.nn.conv2d(input, conv_weight_1, [1, 2, 2, 1], padding='SAME') + conv_biases_1)
             #pool_layer = tf.nn.max_pool(input_conv_layer, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
             input_conv_layer = tf.nn.elu(tf.nn.conv2d(input_conv_layer, conv_weight_2, [1, 2, 2, 1], padding='SAME') + conv_biases_2) 
             #pool_layer = tf.nn.max_pool(input_conv_layer, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
             after_pooling_size = input_conv_layer.get_shape().as_list()
-            input_for_fully = tf.reshape(input_conv_layer, [after_pooling_size[0], after_pooling_size[1] * after_pooling_size[2] * after_pooling_size[3]])
-            fully_1 = tf.where(dropoutCond, fully_connected(input_for_fully, 512, 'fully_1'), fully_connected(input_for_fully, 512, 'fully_1', dropout=False))
-            fully_2 = tf.where(dropoutCond, fully_connected(fully_1, 256, 'fully_2'), fully_connected(fully_1, 256, 'fully_2', dropout=False)) 
-            fully_3 = tf.where(dropoutCond, fully_connected(fully_2, 128, 'fully_3'), fully_connected(fully_1, 128, 'fully_3', dropout=False)) 
-            fully_4 = tf.where(dropoutCond, fully_connected(fully_3, 64, 'fully_4'), fully_connected(fully_1, 64, 'fully_4', dropout=False)) 
+            fully_0 = tf.reshape(input_conv_layer, [after_pooling_size[0], after_pooling_size[1] * after_pooling_size[2] * after_pooling_size[3]])
+            fully_1 = fully_connected(fully_0, 512, 'fully_1', dropout=dropout)
+            fully_2 = fully_connected(fully_1, 256, 'fully_2', dropout=dropout) 
+            fully_3 = fully_connected(fully_1, 128, 'fully_3', dropout=dropout) 
+            fully_4 = fully_connected(fully_1, 64, 'fully_4', dropout=dropout) 
             logits = fully_connected(fully_4, num_labels, 'logits', activate_func=None, dropout=False)
             return logits
 
@@ -128,20 +139,20 @@ with tf.Session(graph=graph) as sess:
         for batch in range(len(train_data) // batch_size):
             batch_data = get_batch_data(train_data, batch_size=batch_size, batch_num=batch)
             batch_labels = get_batch_data(train_labels, batch_size=batch_size, batch_num=batch)
-            _, training_loss, training_accu = sess.run([optimizer, loss_s, accu_s], feed_dict={tf_train: batch_data, tf_train_labels: batch_labels, learning_rate: learning_r, running_mode: 'train'})
+            _, training_loss, training_accu = sess.run([optimizer, loss_s, accu_s], feed_dict={tf_train: batch_data, tf_train_labels: batch_labels, learning_rate: learning_r})
             if batch % 100 == 0: 
                 step = epoch * batch_size + batch
                 file_writer.add_summary(training_loss, step)
                 file_writer.add_summary(training_accu, step)
-                valid_l, valid_ac, valid_loss, valid_accu = sess.run([v_loss, v_accuracy, loss_v, accu_v], feed_dict={running_mode:'valid'})
+                valid_l, valid_ac, valid_loss, valid_accu = sess.run([v_loss, v_accuracy, loss_v, accu_v])
                 file_writer.add_summary(valid_loss, step)
                 file_writer.add_summary(valid_accu, step)
                 print('validation loss: ', valid_l, 'with accuracy:', valid_ac)
-        valid_ac, valid_l = sess.run([v_accuracy, v_loss], feed_dict={running_mode:'valid'})
+        valid_ac, valid_l = sess.run([v_accuracy, v_loss])
         print('After all batches: ')
         print('validation loss: ', valid_l, 'with accuracy:', valid_ac)
         #saver.save(sess, '/model/')
     print('\nTest case:')
-    test_ac, test_l = sess.run([t_accuracy, t_loss], feed_dict={running_mode: 'test'})
+    test_ac, test_l = sess.run([t_accuracy, t_loss])
     print('test loss:', test_l, 'with accuracy:', test_ac)
     #saver.save(sess, '/model/cifar10_{}.ckpt'.format(datetime.utcnow().strftime('%Y%m%d%H%M%S')))
