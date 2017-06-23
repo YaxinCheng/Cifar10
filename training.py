@@ -33,13 +33,29 @@ def loadData():
     train_labels, valid_labels, test_labels = np.array(train_labels), np.array(valid_labels), np.array(test_labels)
     return train_data, train_labels, valid_data, valid_labels, test_data, test_labels
 
-def fully_connected(X, neuron_number, name, activate_func=tf.nn.relu, dropout=True, keep_prob=0.5):
+def conv_connected(X, filter_shape, featureMap, strides, name, padding='SAME', activate_func=tf.nn.elu, pool_func=tf.nn.max_pool, ksize=None, pstrides=None, ppadding='SAME'):
+    featureMap = tuple([featureMap]) if isinstance(featureMap, int) else featureMap
+    with tf.name_scope(name):
+        with tf.variable_scope(name) as scope:
+            try:
+                filter = tf.get_variable('weight', shape=filter_shape+featureMap, initializer=tf.truncated_normal_initialzier(stddev=0.1))
+                biases = tf.get_variable('biases', shape=featureMap, initializer=tf.constant_initializer(0))
+            except ValueError:
+                scope.reuse_variables()
+                filter = tf.get_variable('weight')
+                biases = tf.get_variable('biases')
+        result = tf.nn.conv2d(X, filter, strides, padding) + biases
+        if activate_func: result = activate_func(result)
+        if pool_func and ksize, and pstrides and ppadding:
+            result = pool_func(result, ksize, pstrides, ppadding)
+        return result
+
+def fully_connected(X, neuron_number, name, activate_func=tf.nn.elu, dropout=False, keep_prob=0.5):
     with tf.name_scope(name):
         n_inputs = int(X.get_shape()[1])
         with tf.variable_scope(name) as scope:
             try:
                 weights = tf.get_variable('weight', shape=(n_inputs, neuron_number), initializer=tf.truncated_normal_initializer(stddev=tf.sqrt(4 * 2 / (n_inputs + neuron_number)))) 
-                #weights = tf.get_variable('weight', shape=(n_inputs, neuron_number), initializer=tf.constant_initializer(0.1))
                 biases = tf.get_variable('biases', shape=(neuron_number,), initializer=tf.constant_initializer(0))
             except ValueError: 
                 scope.reuse_variables()
@@ -74,34 +90,22 @@ with graph.as_default():
     tf_valid_labels = tf.constant(valid_labels)
     tf_test = tf.constant(test_data)
     tf_test_labels = tf.constant(test_labels) 
-    
-    with tf.name_scope('conv'):
-        conv_weight_1 = tf.Variable(tf.truncated_normal((patch_size, patch_size, img_rgb, 32), stddev=0.1))
-        conv_biases_1 = tf.Variable(tf.zeros(32)) 
-        conv_weight_2 = tf.Variable(tf.truncated_normal((patch_size, patch_size, 32, 32), stddev=0.1))
-        conv_biases_2 = tf.Variable(tf.zeros(32))
-        conv_weight_3 = tf.Variable(tf.truncated_normal((patch_size, patch_size, 32, 64), stddev=0.1))
-        conv_biases_3 = tf.Variable(tf.zeros(64))
-        conv_weight_4 = tf.Variable(tf.truncated_normal((patch_size, patch_size, 64, 128), stddev=0.1))
-        conv_biases_4 = tf.Variable(tf.zeros(128))
 
     def model(input, dropout=True):
         with tf.name_scope('dnn'):
-            input_conv_layer = tf.nn.elu(tf.nn.conv2d(input, conv_weight_1, [1, 2, 2, 1], padding='SAME') + conv_biases_1)
-            pool_layer = tf.nn.max_pool(input_conv_layer, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME')
-            input_conv_layer = tf.nn.elu(tf.nn.conv2d(input_conv_layer, conv_weight_2, [1, 2, 2, 1], padding='SAME') + conv_biases_2)
-            #pool_layer = tf.nn.max_pool(input_conv_layer, ksize=[1, 2, 2, 1], strides=[1, 2, 2, 1], padding='SAME') 
-            input_conv_layer = tf.nn.elu(tf.nn.conv2d(input_conv_layer, conv_weight_3, [1, 2, 2, 1], padding='SAME') + conv_biases_3)
-            input_conv_layer = tf.nn.elu(tf.nn.conv2d(input_conv_layer, conv_weight_4, [1, 2, 2, 1], padding='SAME') + conv_biases_4)
-            end_conv = input_conv_layer
-            after_pooling_size = end_conv.get_shape().as_list()
-            fully_0 = tf.reshape(end_conv, [after_pooling_size[0], after_pooling_size[1] * after_pooling_size[2] * after_pooling_size[3]])
-            fully_1 = fully_connected(fully_0, 512, 'layer1', dropout=False)
-            fully_2 = fully_connected(fully_1, 256, 'layer2', dropout=False)
-            fully_3 = fully_connected(fully_2, 128, 'layer3', dropout=False)
-            fully_4 = fully_connected(fully_3, 64, 'layer4', dropout=False) 
+            conv_1 = conv_connected(input, (patch_size, patch_size, img_rgb), 32, strides=[1, 2, 2, 1], name='conv1', ksize=[1, 2, 2, 1], pstrides=[1, 2, 2, 1])
+            conv_2 = conv_connected(conv_1, (patch_size, patch_size, 32), 32, strides=[1, 2, 2, 1], name='conv2')
+            conv_3 = conv_connected(conv_2, (patch_size, patch_size, 32), 64, strides=[1, 2, 2, 1], name='conv3')
+            conv_4 = conv_connected(conv_3, (patch_size, patch_size, 64), 128, strides=[1, 2, 2, 1], name='conv4')
+            end_conv = conv_4
+            shape = end_conv.get_shape().as_list()
+            fully_0 = tf.reshape(end_conv, [shape[0], shape[1] * shape[2] * shape[3]])
+            fully_1 = fully_connected(fully_0, 512, name='layer1')
+            fully_2 = fully_connected(fully_1, 256, name='layer2')
+            fully_3 = fully_connected(fully_2, 128, name='layer3')
+            fully_4 = fully_connected(fully_3,  64, name='layer4')
             fully_n = fully_4
-            logits = fully_connected(fully_n, 10, 'logits', dropout=False, activate_func=None)
+            logits = fully_connected(fully_n, 10, 'logits', activate_func=None)
             return logits
 
     def accuracy(logits, labels):
