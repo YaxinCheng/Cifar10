@@ -49,9 +49,20 @@ def conv_connected(X, filter_shape, strides, name, padding='SAME', activate_func
             result = pool_func(result, ksize, pstrides, ppadding)
         return result
 
-def fully_connected(X, neuron_number, name, activate_func=tf.nn.elu, dropout=False, keep_prob=0.5):
+def fully_connected(X, neuron_number, name, batch_norm=False, activate_func=tf.nn.elu):
+    n_inputs = int(X.get_shape()[1])
+    if batch_norm:
+        with tf.name_scope(name + '_batch_normal'):
+            mean, variance = batch_norm_param['mean'], batch_norm_param['variance']
+            with tf.variable_scope(name) as scope:
+                try:
+                    offset = tf.get_variable('offset', shape=(n_inputs,), initializer=tf.truncated_normal_initializer(stddev=0.1))
+                    scale = tf.get_variable('scale', shape=(n_inputs,), initializer=tf.truncated_normal_initializer(stddev=0.1))
+                except:
+                    offset = tf.get_variable('offset')
+                    scale = tf.get_variable('scale')
+        X = tf.nn.batch_normalization(X, mean, variance, offset, scale, 0.0001)
     with tf.name_scope(name):
-        n_inputs = int(X.get_shape()[1])
         with tf.variable_scope(name) as scope:
             try:
                 weights = tf.get_variable('weight', shape=(n_inputs, neuron_number), initializer=tf.truncated_normal_initializer(stddev=tf.sqrt(4 * 2 / (n_inputs + neuron_number)))) 
@@ -62,7 +73,6 @@ def fully_connected(X, neuron_number, name, activate_func=tf.nn.elu, dropout=Fal
                 biases = tf.get_variable('biases')
         result = tf.matmul(X, weights) + biases
         if activate_func: result = activate_func(result)
-        if dropout: result = tf.nn.dropout(result, keep_prob=keep_prob)
         return result
 
 def get_batch_data(data, batch_num, batch_size):
@@ -90,7 +100,7 @@ with graph.as_default():
     tf_test = tf.constant(test_data)
     tf_test_labels = tf.constant(test_labels) 
 
-    def model(input, dropout=True):
+    def model(input):
         with tf.name_scope('dnn'):
             conv_1 = conv_connected(input, (patch_size, patch_size, img_rgb, 32), strides=[1, 2, 2, 1], name='conv1', ksize=[1, 2, 2, 1], pstrides=[1, 2, 2, 1])
             conv_2 = conv_connected(conv_1, (patch_size, patch_size, 32, 32), strides=[1, 2, 2, 1], name='conv2')
@@ -114,10 +124,9 @@ with graph.as_default():
     with tf.name_scope('loss'):
         logits = model(tf_train)
         loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=tf_train_labels, logits=logits)) 
-        v_logits = model(tf_valid, dropout=False)
+        v_logits = model(tf_valid)
         v_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=tf_valid_labels, logits=v_logits)) 
-        v_prediction = tf.nn.softmax(v_logits)
-        t_logits = model(tf_test, dropout=False)
+        t_logits = model(tf_test)
         t_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=tf_test_labels, logits=t_logits)) 
 
     with tf.name_scope('optimizer'):
