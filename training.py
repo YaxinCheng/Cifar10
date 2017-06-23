@@ -33,20 +33,19 @@ def loadData():
     train_labels, valid_labels, test_labels = np.array(train_labels), np.array(valid_labels), np.array(test_labels)
     return train_data, train_labels, valid_data, valid_labels, test_data, test_labels
 
-def conv_connected(X, filter_shape, featureMap, strides, name, padding='SAME', activate_func=tf.nn.elu, pool_func=tf.nn.max_pool, ksize=None, pstrides=None, ppadding='SAME'):
-    featureMap = tuple([featureMap]) if isinstance(featureMap, int) else featureMap
+def conv_connected(X, filter_shape, strides, name, padding='SAME', activate_func=tf.nn.elu, pool_func=tf.nn.max_pool, ksize=None, pstrides=None, ppadding='SAME'):
     with tf.name_scope(name):
         with tf.variable_scope(name) as scope:
             try:
-                filter = tf.get_variable('weight', shape=filter_shape+featureMap, initializer=tf.truncated_normal_initialzier(stddev=0.1))
-                biases = tf.get_variable('biases', shape=featureMap, initializer=tf.constant_initializer(0))
+                filter = tf.get_variable('weight', shape=filter_shape, initializer=tf.truncated_normal_initialzier(stddev=0.1))
+                biases = tf.get_variable('biases', shape=(filter_shape[-1],), initializer=tf.constant_initializer(0))
             except ValueError:
                 scope.reuse_variables()
                 filter = tf.get_variable('weight')
                 biases = tf.get_variable('biases')
         result = tf.nn.conv2d(X, filter, strides, padding) + biases
         if activate_func: result = activate_func(result)
-        if pool_func and ksize, and pstrides and ppadding:
+        if pool_func and ksize and pstrides and ppadding:
             result = pool_func(result, ksize, pstrides, ppadding)
         return result
 
@@ -93,10 +92,10 @@ with graph.as_default():
 
     def model(input, dropout=True):
         with tf.name_scope('dnn'):
-            conv_1 = conv_connected(input, (patch_size, patch_size, img_rgb), 32, strides=[1, 2, 2, 1], name='conv1', ksize=[1, 2, 2, 1], pstrides=[1, 2, 2, 1])
-            conv_2 = conv_connected(conv_1, (patch_size, patch_size, 32), 32, strides=[1, 2, 2, 1], name='conv2')
-            conv_3 = conv_connected(conv_2, (patch_size, patch_size, 32), 64, strides=[1, 2, 2, 1], name='conv3')
-            conv_4 = conv_connected(conv_3, (patch_size, patch_size, 64), 128, strides=[1, 2, 2, 1], name='conv4')
+            conv_1 = conv_connected(input, (patch_size, patch_size, img_rgb, 32), strides=[1, 2, 2, 1], name='conv1', ksize=[1, 2, 2, 1], pstrides=[1, 2, 2, 1])
+            conv_2 = conv_connected(conv_1, (patch_size, patch_size, 32, 32), strides=[1, 2, 2, 1], name='conv2')
+            conv_3 = conv_connected(conv_2, (patch_size, patch_size, 32, 64), strides=[1, 2, 2, 1], name='conv3')
+            conv_4 = conv_connected(conv_3, (patch_size, patch_size, 64, 128), strides=[1, 2, 2, 1], name='conv4')
             end_conv = conv_4
             shape = end_conv.get_shape().as_list()
             fully_0 = tf.reshape(end_conv, [shape[0], shape[1] * shape[2] * shape[3]])
