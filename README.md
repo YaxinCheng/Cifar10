@@ -40,7 +40,7 @@ Simply inserting new layers will only increase the cost of computation, and more
 * Fully Connected with 128 neurons, activation fn: elu
 * Fully Connected with 64  neurons, activation fn: elu
 * Fully Connected with 32  neurons, activation fn: elu
-* Fully Connected with 10  neurons, activation fn: elu 
+* Fully Connected with 10  neurons, activation fn: softmax
 ### Training
 * Learning rate: 0.004
 * Learning algo: stochastic gradient descent
