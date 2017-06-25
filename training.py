@@ -49,7 +49,7 @@ def conv_connected(X, filter_shape, strides, name, padding='SAME', activate_func
             result = pool_func(result, ksize, pstrides, ppadding)
         return result
 
-def fully_connected(X, neuron_number, name, batch_norm=True, activate_func=tf.nn.elu):
+def fully_connected(X, neuron_number, name, batch_norm=True, activate_func=tf.nn.elu, dropout=False, keep_prob=0.95):
     n_inputs = int(X.get_shape()[1])
     if batch_norm:
         with tf.name_scope(name):
@@ -74,6 +74,7 @@ def fully_connected(X, neuron_number, name, batch_norm=True, activate_func=tf.nn
                 biases = tf.get_variable('biases')
         result = tf.matmul(X, weights) + biases
         if activate_func: result = activate_func(result)
+        if dropout: result = tf.nn.dropout(result, keep_prob=keep_prob)
         return result
 
 def get_batch_data(data, batch_num, batch_size):
@@ -101,26 +102,26 @@ with graph.as_default():
     tf_test = tf.constant(test_data)
     tf_test_labels = tf.constant(test_labels) 
 
-    def model(input):
+    def model(input, dropout=True):
         with tf.name_scope('dnn'):
-            conv_0 = conv_connected(input, (1, 1, img_rgb, 32), strides=[1,1,1,1], name='conv0')
-            conv_1 = conv_connected(conv_0, (patch_size, patch_size, 32, 32), strides=[1, 1, 1, 1], name='conv1')
-            conv_2 = conv_connected(conv_1, (patch_size, patch_size, 32, 64), strides=[1, 2, 2, 1], name='conv2', ksize=[1, 2, 2, 1], pstrides=[1, 2, 2, 1])
-            conv_3 = conv_connected(conv_2, (1, 1, 64, 64), strides=[1, 1, 1, 1], name='conv3')
-            conv_4 = conv_connected(conv_3, (5, 5, 64, 128), strides=[1, 2, 2, 1], name='conv4')
-            conv_5 = conv_connected(conv_4, (patch_size, patch_size, 128, 256), strides=[1, 1, 1, 1], name='conv5')
-            conv_6 = conv_connected(conv_5, (patch_size, patch_size, 256, 256), strides=[1, 1, 1, 1], name='conv6')
-            end_conv = conv_6
-            shape = end_conv.get_shape().as_list()
+            conv = conv_connected(input, (1, 1, img_rgb, 32), strides=[1,1,1,1], name='conv0')
+            conv = conv_connected(conv, (patch_size, patch_size, 32, 32), strides=[1, 1, 1, 1], name='conv1', ksize=[1, 2, 2, 1], pstrides=[1, 2, 2, 1])
+            conv = conv_connected(conv, (patch_size, patch_size, 32, 64), strides=[1, 2, 2, 1], name='conv2', ksize=[1, 2, 2, 1], pstrides=[1, 2, 2, 1])
+            shape = conv.get_shape().as_list()
             print(shape)
-            fully_0 = tf.reshape(end_conv, [shape[0], shape[1] * shape[2] * shape[3]])
-            fully_1 = fully_connected(fully_0, 512, name='layer1')
-            fully_2 = fully_connected(fully_1, 256, name='layer2')
-            fully_3 = fully_connected(fully_2, 128, name='layer3')
-            fully_4 = fully_connected(fully_3, 64, name='layer4')
-            fully_5 = fully_connected(fully_4, 32, name='layer5')
-            fully_n = fully_5
-            logits = fully_connected(fully_n, 10, 'logits', activate_func=None)
+            fully_0 = tf.reshape(conv, [shape[0], shape[1] * shape[2] * shape[3]])
+            fully = fully_connected(fully_0, 1024, name='layer0', dropout=dropout)
+            fully = fully_connected(fully, 900, name='layer0.5', dropout=dropout)
+            fully = fully_connected(fully, 800, name='layer1', dropout=dropout)
+            fully = fully_connected(fully, 700, name='layer2', dropout=dropout)
+            fully = fully_connected(fully, 600, name='layer3', dropout=dropout)
+            fully = fully_connected(fully, 512, name='layer4', dropout=dropout)
+            fully = fully_connected(fully, 400, name='layer5', dropout=dropout)
+            fully = fully_connected(fully, 300, name='layer6', dropout=dropout)
+            fully = fully_connected(fully, 256, name='layer7', dropout=dropout)
+            fully = fully_connected(fully, 128, name='layer8', dropout=dropout)
+            fully = fully_connected(fully, 80, name='layer9', dropout=dropout) 
+            logits = fully_connected(fully, 10, 'logits', activate_func=None, dropout=dropout)
             return logits
 
     def accuracy(logits, labels):
@@ -128,11 +129,11 @@ with graph.as_default():
         return tf.reduce_mean(tf.cast(correct, tf.float32))
 
     with tf.name_scope('loss'):
-        logits = model(tf_train)
+        logits = model(tf_train, dropout=True)
         loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=tf_train_labels, logits=logits)) 
-        v_logits = model(tf_valid)
+        v_logits = model(tf_valid, dropout=False)
         v_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=tf_valid_labels, logits=v_logits)) 
-        t_logits = model(tf_test)
+        t_logits = model(tf_test, dropout=False)
         t_loss = tf.reduce_mean(tf.nn.sparse_softmax_cross_entropy_with_logits(labels=tf_test_labels, logits=t_logits)) 
 
     with tf.name_scope('optimizer'):
@@ -150,9 +151,9 @@ with graph.as_default():
 
     saver = tf.train.Saver()
 
-epoches = 6001
+epoches = 3501
 file_writer = tf.summary.FileWriter(logdir)
-learning_r = 0.004
+learning_r = 0.005
 
 with tf.Session(graph=graph) as sess:
     tf.global_variables_initializer().run()

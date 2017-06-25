@@ -35,12 +35,12 @@ Simply inserting new layers will only increase the cost of computation, and more
 * 1x1+2(S) Conv, feature map channels: 128, activation fn: elu
 * 3x3+1(S) Conv, feature map channels: 256, activation fn: elu
 * 3x3+1(S) Conv, feature map channels: 256, activation fn: elu
-* Fully Connected with 512 neurons, activation fn: elu
-* Fully Connected with 256 neurons, activation fn: elu
-* Fully Connected with 128 neurons, activation fn: elu
-* Fully Connected with 64  neurons, activation fn: elu
-* Fully Connected with 32  neurons, activation fn: elu
-* Fully Connected with 10  neurons, activation fn: softmax
+* Fully Connected with 512 neurons, activation fn: elu, with batch normalization
+* Fully Connected with 256 neurons, activation fn: elu, with batch normalization
+* Fully Connected with 128 neurons, activation fn: elu, with batch normalization
+* Fully Connected with 64  neurons, activation fn: elu, with batch normalization
+* Fully Connected with 32  neurons, activation fn: elu, with batch normalization
+* Fully Connected with 10  neurons, activation fn: softmax, with batch normalization
 ### Training
 * Learning rate: 0.004
 * Learning algo: stochastic gradient descent
