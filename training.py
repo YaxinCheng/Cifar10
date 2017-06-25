@@ -37,7 +37,7 @@ def conv_connected(X, filter_shape, strides, name, padding='SAME', activate_func
     with tf.name_scope(name):
         with tf.variable_scope(name) as scope:
             try:
-                filter = tf.get_variable('weight', shape=filter_shape, initializer=tf.truncated_normal_initialzier(stddev=0.1))
+                filter = tf.get_variable('weight', shape=filter_shape, initializer=tf.truncated_normal_initializer(stddev=0.1))
                 biases = tf.get_variable('biases', shape=(filter_shape[-1],), initializer=tf.constant_initializer(0))
             except ValueError:
                 scope.reuse_variables()
@@ -49,16 +49,17 @@ def conv_connected(X, filter_shape, strides, name, padding='SAME', activate_func
             result = pool_func(result, ksize, pstrides, ppadding)
         return result
 
-def fully_connected(X, neuron_number, name, batch_norm=False, activate_func=tf.nn.elu):
+def fully_connected(X, neuron_number, name, batch_norm=True, activate_func=tf.nn.elu):
     n_inputs = int(X.get_shape()[1])
     if batch_norm:
-        with tf.name_scope(name + '_batch_normal'):
-            mean, variance = batch_norm_param['mean'], batch_norm_param['variance']
+        with tf.name_scope(name):
+            mean, variance = tf.nn.moments(X, axes=0)
             with tf.variable_scope(name) as scope:
                 try:
                     offset = tf.get_variable('offset', shape=(n_inputs,), initializer=tf.truncated_normal_initializer(stddev=0.1))
                     scale = tf.get_variable('scale', shape=(n_inputs,), initializer=tf.truncated_normal_initializer(stddev=0.1))
                 except:
+                    scope.reuse_variables()
                     offset = tf.get_variable('offset')
                     scale = tf.get_variable('scale')
         X = tf.nn.batch_normalization(X, mean, variance, offset, scale, 0.0001)
@@ -102,18 +103,23 @@ with graph.as_default():
 
     def model(input):
         with tf.name_scope('dnn'):
-            conv_1 = conv_connected(input, (patch_size, patch_size, img_rgb, 32), strides=[1, 2, 2, 1], name='conv1', ksize=[1, 2, 2, 1], pstrides=[1, 2, 2, 1])
-            conv_2 = conv_connected(conv_1, (patch_size, patch_size, 32, 32), strides=[1, 2, 2, 1], name='conv2')
-            conv_3 = conv_connected(conv_2, (patch_size, patch_size, 32, 64), strides=[1, 2, 2, 1], name='conv3')
-            conv_4 = conv_connected(conv_3, (patch_size, patch_size, 64, 128), strides=[1, 2, 2, 1], name='conv4')
-            end_conv = conv_4
+            conv_0 = conv_connected(input, (1, 1, img_rgb, 32), strides=[1,1,1,1], name='conv0')
+            conv_1 = conv_connected(conv_0, (patch_size, patch_size, 32, 32), strides=[1, 1, 1, 1], name='conv1')
+            conv_2 = conv_connected(conv_1, (patch_size, patch_size, 32, 64), strides=[1, 2, 2, 1], name='conv2', ksize=[1, 2, 2, 1], pstrides=[1, 2, 2, 1])
+            conv_3 = conv_connected(conv_2, (1, 1, 64, 64), strides=[1, 1, 1, 1], name='conv3')
+            conv_4 = conv_connected(conv_3, (5, 5, 64, 128), strides=[1, 2, 2, 1], name='conv4')
+            conv_5 = conv_connected(conv_4, (patch_size, patch_size, 128, 256), strides=[1, 1, 1, 1], name='conv5')
+            conv_6 = conv_connected(conv_5, (patch_size, patch_size, 256, 256), strides=[1, 1, 1, 1], name='conv6')
+            end_conv = conv_6
             shape = end_conv.get_shape().as_list()
+            print(shape)
             fully_0 = tf.reshape(end_conv, [shape[0], shape[1] * shape[2] * shape[3]])
             fully_1 = fully_connected(fully_0, 512, name='layer1')
             fully_2 = fully_connected(fully_1, 256, name='layer2')
             fully_3 = fully_connected(fully_2, 128, name='layer3')
-            fully_4 = fully_connected(fully_3,  64, name='layer4')
-            fully_n = fully_4
+            fully_4 = fully_connected(fully_3, 64, name='layer4')
+            fully_5 = fully_connected(fully_4, 32, name='layer5')
+            fully_n = fully_5
             logits = fully_connected(fully_n, 10, 'logits', activate_func=None)
             return logits
 
@@ -144,9 +150,9 @@ with graph.as_default():
 
     saver = tf.train.Saver()
 
-epoches = 5000
+epoches = 6001
 file_writer = tf.summary.FileWriter(logdir)
-learning_r = 0.005
+learning_r = 0.004
 
 with tf.Session(graph=graph) as sess:
     tf.global_variables_initializer().run()
@@ -157,10 +163,10 @@ with tf.Session(graph=graph) as sess:
         if epoch % 500 == 0: 
             file_writer.add_summary(training_loss, epoch)
             valid_l, valid_loss, v_accu = sess.run([v_loss, loss_v, v_accuracy])
-            print('Valid loss', valid_l, 'Accuracy', '{}%'.format(v_accu * 100))
+            print(epoch, 'Valid loss', valid_l, 'Accuracy', '{}%'.format(v_accu * 100))
             file_writer.add_summary(valid_loss, epoch)
         #saver.save(sess, 'model/cifar10_partly.ckpt')
     print('\nTest case:')
     test_ac, test_l = sess.run([t_accuracy, t_loss])
-    print('test loss:', test_l, 'with accuracy:', test_ac)
-    saver.save(sess, 'model/cifar10.ckpt')
+    print('test loss:', test_l, 'with accuracy: {}%\n'.format(test_ac * 100))
+    #saver.save(sess, 'model/cifar10.ckpt')
