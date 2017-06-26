@@ -22,6 +22,7 @@ It is not at a state of art, not even a good state. However it works now.<br>
 * Learning algo: stochastic gradient descent
 * Mini-batch: 128
 * Optimizer: Adam
+* Cost function: Cross Entropy
 ## Phase 2 - Accuracy 64%
 Dropout was ditched completely, and the new batch normalization was added to the fully connected layers.<br>
 More convolution and fully connected layers were added to the network which led to the accuracy of 64%.<br>
@@ -46,3 +47,4 @@ Simply inserting new layers will only increase the cost of computation, and more
 * Learning algo: stochastic gradient descent
 * Mini-batch: 128
 * Optimizer: Adam
+* Cost function: Cross Entropy
