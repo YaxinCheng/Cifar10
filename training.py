@@ -49,7 +49,7 @@ def conv_connected(X, filter_shape, strides, name, padding='SAME', activate_func
             result = pool_func(result, ksize, pstrides, ppadding)
         return result
 
-def fully_connected(X, neuron_number, name, batch_norm=True, activate_func=tf.nn.elu, dropout=False, keep_prob=0.95):
+def fully_connected(X, neuron_number, name, batch_norm=True, activate_func=tf.nn.elu, dropout=False, keep_prob=0.5):
     n_inputs = int(X.get_shape()[1])
     if batch_norm:
         with tf.name_scope(name):
@@ -90,6 +90,7 @@ def get_batch_data(data, batch_num, batch_size):
 batch_size = 128
 num_labels = 10 
 patch_size = 3
+beta = 0.01
 
 train_data, train_labels, valid_data, valid_labels, test_data, test_labels = loadData()
 
@@ -105,23 +106,18 @@ with graph.as_default():
     def model(input, dropout=True):
         with tf.name_scope('dnn'):
             conv = conv_connected(input, (1, 1, img_rgb, 32), strides=[1,1,1,1], name='conv0')
-            conv = conv_connected(conv, (patch_size, patch_size, 32, 32), strides=[1, 1, 1, 1], name='conv1', ksize=[1, 2, 2, 1], pstrides=[1, 2, 2, 1])
-            conv = conv_connected(conv, (patch_size, patch_size, 32, 64), strides=[1, 2, 2, 1], name='conv2', ksize=[1, 2, 2, 1], pstrides=[1, 2, 2, 1])
+            conv = tf.nn.lrn(conv)
+            conv = conv_connected(conv, (patch_size, patch_size, 32, 64), strides=[1, 1, 1, 1], name='conv1', ksize=[1, 2, 2, 1], pstrides=[1, 2, 2, 1])
+            conv = tf.nn.lrn(conv)
+            conv = conv_connected(conv, (patch_size, patch_size, 64, 128), strides=[1, 2, 2, 1], name='conv2', ksize=[1, 2, 2, 1], pstrides=[1, 2, 2, 1])
+            conv = tf.nn.lrn(conv)
             shape = conv.get_shape().as_list()
-            print(shape)
             fully_0 = tf.reshape(conv, [shape[0], shape[1] * shape[2] * shape[3]])
-            fully = fully_connected(fully_0, 1024, name='layer0', dropout=dropout)
-            fully = fully_connected(fully, 900, name='layer0.5', dropout=dropout)
-            fully = fully_connected(fully, 800, name='layer1', dropout=dropout)
-            fully = fully_connected(fully, 700, name='layer2', dropout=dropout)
-            fully = fully_connected(fully, 600, name='layer3', dropout=dropout)
-            fully = fully_connected(fully, 512, name='layer4', dropout=dropout)
-            fully = fully_connected(fully, 400, name='layer5', dropout=dropout)
-            fully = fully_connected(fully, 300, name='layer6', dropout=dropout)
-            fully = fully_connected(fully, 256, name='layer7', dropout=dropout)
-            fully = fully_connected(fully, 128, name='layer8', dropout=dropout)
-            fully = fully_connected(fully, 80, name='layer9', dropout=dropout) 
-            logits = fully_connected(fully, 10, 'logits', activate_func=None, dropout=dropout)
+            fully = fully_connected(fully_0, 512, name='layer1', dropout=dropout)
+            fully = fully_connected(fully, 256, name='layer2', dropout=dropout)
+            fully = fully_connected(fully, 128, name='layer3', dropout=dropout)
+            fully = fully_connected(fully, 80, name='layer4', dropout=False) 
+            logits = fully_connected(fully, 10, 'logits', activate_func=None, dropout=False)
             return logits
 
     def accuracy(logits, labels):
@@ -151,9 +147,9 @@ with graph.as_default():
 
     saver = tf.train.Saver()
 
-epoches = 3501
+epoches = 4501
 file_writer = tf.summary.FileWriter(logdir)
-learning_r = 0.005
+learning_r = 0.01
 
 with tf.Session(graph=graph) as sess:
     tf.global_variables_initializer().run()
@@ -166,6 +162,7 @@ with tf.Session(graph=graph) as sess:
             valid_l, valid_loss, v_accu = sess.run([v_loss, loss_v, v_accuracy])
             print(epoch, 'Valid loss', valid_l, 'Accuracy', '{}%'.format(v_accu * 100))
             file_writer.add_summary(valid_loss, epoch)
+            file_writer.add_summary(training_loss, epoch)
         #saver.save(sess, 'model/cifar10_partly.ckpt')
     print('\nTest case:')
     test_ac, test_l = sess.run([t_accuracy, t_loss])
