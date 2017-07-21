@@ -52,4 +52,4 @@ Simply inserting new layers will only increase the cost of computation, and more
 * Optimizer: Adam
 * Cost function: Cross Entropy
 ### Problem analysis:
-* Overfitting after a few batches of normalization.
+* Overfitting after a few batches.
