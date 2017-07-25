@@ -72,6 +72,7 @@ def fully_connected(X, neuron_number, name, batch_norm=True, activate_func=tf.nn
                 scope.reuse_variables()
                 weights = tf.get_variable('weight')
                 biases = tf.get_variable('biases')
+        if not dropout: weights = weights * keep_prob# Weights scaling
         result = tf.matmul(X, weights) + biases
         if activate_func: result = activate_func(result)
         if dropout: result = tf.nn.dropout(result, keep_prob=keep_prob)
@@ -116,7 +117,7 @@ with graph.as_default():
             fully = fully_connected(fully_0, 512, name='layer1', dropout=dropout)
             fully = fully_connected(fully, 256, name='layer2', dropout=dropout)
             fully = fully_connected(fully, 128, name='layer3', dropout=dropout)
-            fully = fully_connected(fully, 80, name='layer4', dropout=False) 
+            fully = fully_connected(fully, 80, name='layer4', dropout=dropout) 
             logits = fully_connected(fully, 10, 'logits', activate_func=None, dropout=False)
             return logits
 
