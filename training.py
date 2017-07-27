@@ -33,7 +33,7 @@ def loadData():
     train_labels, valid_labels, test_labels = np.array(train_labels), np.array(valid_labels), np.array(test_labels)
     return train_data, train_labels, valid_data, valid_labels, test_data, test_labels
 
-def conv_connected(X, filter_shape, strides, name, padding='SAME', activate_func=tf.nn.elu, pool_func=tf.nn.max_pool, ksize=None, pstrides=None, ppadding='SAME'):
+def conv_connected(X, filter_shape, strides, name, padding='SAME', batch_norm=True, activate_func=tf.nn.elu, pool_func=tf.nn.max_pool, ksize=None, pstrides=None, ppadding='SAME'):
     with tf.name_scope(name):
         with tf.variable_scope(name) as scope:
             try:
@@ -44,6 +44,18 @@ def conv_connected(X, filter_shape, strides, name, padding='SAME', activate_func
                 filter = tf.get_variable('weight')
                 biases = tf.get_variable('biases')
         result = tf.nn.conv2d(X, filter, strides, padding) + biases
+        if batch_norm:
+            varShape = result.get_shape().as_list()
+            mean, variance = tf.nn.moments(result, axes=0)
+            with tf.variable_scope(name) as scope:
+                try:
+                    offset = tf.get_variable('offset', shape=varShape, initializer=tf.truncated_normal_initializer(stddev=0.1))
+                    scale = tf.get_variable('scale', shape=varShape, initializer=tf.truncated_normal_initializer(stddev=0.1))
+                except:
+                    scope.reuse_variables()
+                    offset = tf.get_variable('offset')
+                    scale = tf.get_variable('scale')
+            result = tf.nn.batch_normalization(result, mean, variance, offset, scale, 0.0001)
         if activate_func: result = activate_func(result)
         if pool_func and ksize and pstrides and ppadding:
             result = pool_func(result, ksize, pstrides, ppadding)
@@ -51,18 +63,6 @@ def conv_connected(X, filter_shape, strides, name, padding='SAME', activate_func
 
 def fully_connected(X, neuron_number, name, batch_norm=True, activate_func=tf.nn.elu, dropout=False, keep_prob=0.5):
     n_inputs = int(X.get_shape()[1])
-    if batch_norm:
-        with tf.name_scope(name):
-            mean, variance = tf.nn.moments(X, axes=0)
-            with tf.variable_scope(name) as scope:
-                try:
-                    offset = tf.get_variable('offset', shape=(n_inputs,), initializer=tf.truncated_normal_initializer(stddev=0.1))
-                    scale = tf.get_variable('scale', shape=(n_inputs,), initializer=tf.truncated_normal_initializer(stddev=0.1))
-                except:
-                    scope.reuse_variables()
-                    offset = tf.get_variable('offset')
-                    scale = tf.get_variable('scale')
-        X = tf.nn.batch_normalization(X, mean, variance, offset, scale, 0.0001)
     with tf.name_scope(name):
         with tf.variable_scope(name) as scope:
             try:
@@ -74,6 +74,17 @@ def fully_connected(X, neuron_number, name, batch_norm=True, activate_func=tf.nn
                 biases = tf.get_variable('biases')
         if not dropout: weights = weights * keep_prob# Weights scaling
         result = tf.matmul(X, weights) + biases
+        if batch_norm:
+            mean, variance = tf.nn.moments(result, axes=0)
+            with tf.variable_scope(name) as scope:
+                try:
+                    offset = tf.get_variable('offset', shape=(n_inputs,), initializer=tf.truncated_normal_initializer(stddev=0.1))
+                    scale = tf.get_variable('scale', shape=(n_inputs,), initializer=tf.truncated_normal_initializer(stddev=0.1))
+                except:
+                    scope.reuse_variables()
+                    offset = tf.get_variable('offset')
+                    scale = tf.get_variable('scale')
+            result = tf.nn.batch_normalization(result, mean, variance, offset, scale, 0.0001)
         if activate_func: result = activate_func(result)
         if dropout: result = tf.nn.dropout(result, keep_prob=keep_prob)
         return result
