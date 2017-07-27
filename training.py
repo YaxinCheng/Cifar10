@@ -118,7 +118,7 @@ with graph.as_default():
             fully = fully_connected(fully, 256, name='layer2', dropout=dropout)
             fully = fully_connected(fully, 128, name='layer3', dropout=dropout)
             fully = fully_connected(fully, 80, name='layer4', dropout=dropout) 
-            logits = fully_connected(fully, 10, 'logits', activate_func=None, dropout=False)
+            logits = fully_connected(fully, 10, 'logits', activate_func=None, dropout=False, keep_prob=1)
             return logits
 
     def accuracy(logits, labels):
