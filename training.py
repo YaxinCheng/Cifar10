@@ -46,6 +46,7 @@ def conv_connected(X, filter_shape, strides, name, padding='SAME', batch_norm=Tr
         result = tf.nn.conv2d(X, filter, strides, padding) + biases
         if batch_norm:
             varShape = result.get_shape().as_list()
+            varShape = (varShape[1], varShape[2], varShape[3], )
             mean, variance = tf.nn.moments(result, axes=0)
             with tf.variable_scope(name) as scope:
                 try:
@@ -117,15 +118,15 @@ with graph.as_default():
 
     def model(input, dropout=True):
         with tf.name_scope('dnn'):
-            conv = conv_connected(input, (patch_size, patch_size, img_rgb, 32), strides=[1,1,1,1], name='conv0')
+            conv = conv_connected(input, (patch_size, patch_size, img_rgb, 16), strides=[1,1,1,1], name='conv0')
             conv = tf.nn.lrn(conv)
-            conv = conv_connected(conv, (2, 2, 32, 64), strides=[1, 2, 2, 1], padding='VALID', name='conv1')
+            conv = conv_connected(conv, (2, 2, 16, 32), strides=[1, 2, 2, 1], padding='VALID', name='conv1')
             conv = tf.nn.lrn(conv)
-            conv = conv_connected(conv, (patch_size, patch_size, 64, 128), strides=[1, 1, 1, 1], name='conv2')
+            conv = conv_connected(conv, (patch_size, patch_size, 32, 48), strides=[1, 1, 1, 1], name='conv2')
             conv = tf.nn.lrn(conv)
-            conv = conv_connected(conv, (2, 2, 128, 256), padding='VALID', strides=[1, 2, 2, 1], name='conv3')
+            conv = conv_connected(conv, (2, 2, 48, 64), padding='VALID', strides=[1, 2, 2, 1], name='conv3')
             conv = tf.nn.lrn(conv)
-            conv = conv_connected(conv, (5, 5, 256, 512), padding='VALID',  strides=[1, 1, 1, 1], name='conv4')
+            conv = conv_connected(conv, (5, 5, 64, 128), padding='VALID',  strides=[1, 1, 1, 1], name='conv4')
             conv = tf.nn.lrn(conv)
             shape = conv.get_shape().as_list()
             fully = tf.reshape(conv, [shape[0], shape[1] * shape[2] * shape[3]])
