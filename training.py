@@ -44,6 +44,8 @@ def conv_connected(X, filter_shape, strides, name, padding='SAME', batch_norm=Tr
                 filter = tf.get_variable('weight')
                 biases = tf.get_variable('biases')
         result = tf.nn.conv2d(X, filter, strides, padding) + biases
+        result = tf.nn.lrn(result)
+        if activate_func: result = activate_func(result) 
         if batch_norm:
             varShape = result.get_shape().as_list()
             varShape = (varShape[1], varShape[2], varShape[3], )
@@ -57,7 +59,6 @@ def conv_connected(X, filter_shape, strides, name, padding='SAME', batch_norm=Tr
                     offset = tf.get_variable('offset')
                     scale = tf.get_variable('scale')
             result = tf.nn.batch_normalization(result, mean, variance, offset, scale, 0.0001)
-        if activate_func: result = activate_func(result)
         if pool_func and ksize and pstrides and ppadding:
             result = pool_func(result, ksize, pstrides, ppadding)
         return result
@@ -75,18 +76,19 @@ def fully_connected(X, neuron_number, name, batch_norm=True, activate_func=tf.nn
                 biases = tf.get_variable('biases')
         if not dropout: weights = weights * keep_prob# Weights scaling
         result = tf.matmul(X, weights) + biases
+        if activate_func: result = activate_func(result)
         if batch_norm:
             mean, variance = tf.nn.moments(result, axes=0)
+            varShape = int(result.get_shape()[1])
             with tf.variable_scope(name) as scope:
                 try:
-                    offset = tf.get_variable('offset', shape=(n_inputs,), initializer=tf.truncated_normal_initializer(stddev=0.1))
-                    scale = tf.get_variable('scale', shape=(n_inputs,), initializer=tf.truncated_normal_initializer(stddev=0.1))
+                    offset = tf.get_variable('offset', shape=(varShape,), initializer=tf.truncated_normal_initializer(stddev=0.1))
+                    scale = tf.get_variable('scale', shape=(varShape,), initializer=tf.truncated_normal_initializer(stddev=0.1))
                 except:
                     scope.reuse_variables()
                     offset = tf.get_variable('offset')
                     scale = tf.get_variable('scale')
             result = tf.nn.batch_normalization(result, mean, variance, offset, scale, 0.0001)
-        if activate_func: result = activate_func(result)
         if dropout: result = tf.nn.dropout(result, keep_prob=keep_prob)
         return result
 
@@ -119,22 +121,16 @@ with graph.as_default():
     def model(input, dropout=True):
         with tf.name_scope('dnn'):
             conv = conv_connected(input, (patch_size, patch_size, img_rgb, 16), strides=[1,1,1,1], name='conv0')
-            conv = tf.nn.lrn(conv)
             conv = conv_connected(conv, (2, 2, 16, 32), strides=[1, 2, 2, 1], padding='VALID', name='conv1')
-            conv = tf.nn.lrn(conv)
             conv = conv_connected(conv, (patch_size, patch_size, 32, 48), strides=[1, 1, 1, 1], name='conv2')
-            conv = tf.nn.lrn(conv)
             conv = conv_connected(conv, (2, 2, 48, 64), padding='VALID', strides=[1, 2, 2, 1], name='conv3')
-            conv = tf.nn.lrn(conv)
-            conv = conv_connected(conv, (5, 5, 64, 128), padding='VALID',  strides=[1, 1, 1, 1], name='conv4')
-            conv = tf.nn.lrn(conv)
             shape = conv.get_shape().as_list()
             fully = tf.reshape(conv, [shape[0], shape[1] * shape[2] * shape[3]])
+            fully = fully_connected(fully, 2048, name='layer', dropout=dropout)
             fully = fully_connected(fully, 1024, name='layer0', dropout=dropout)
             fully = fully_connected(fully, 512, name='layer1', dropout=dropout)
             fully = fully_connected(fully, 256, name='layer2', dropout=dropout)
             fully = fully_connected(fully, 128, name='layer3', dropout=dropout)
-            fully = fully_connected(fully, 80, name='layer4', dropout=dropout) 
             logits = fully_connected(fully, 10, 'logits', activate_func=None, dropout=False, keep_prob=1)
             return logits
 
@@ -165,9 +161,10 @@ with graph.as_default():
 
     saver = tf.train.Saver()
 
-epoches = 4501
+epoches = 5501
 file_writer = tf.summary.FileWriter(logdir)
-learning_r = 0.01
+learning_r = 0.02
+print('Conv with batch norm')
 
 with tf.Session(graph=graph) as sess:
     tf.global_variables_initializer().run()
