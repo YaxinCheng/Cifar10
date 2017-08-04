@@ -3,6 +3,7 @@ from six.moves import cPickle as pickle
 import numpy as np
 from datetime import datetime
 import os
+import sys
 
 if not os.path.exists('tf_logs'): os.makedirs('tf_logs')
 if not os.path.exists('model'): os.makedirs('model')
@@ -33,7 +34,10 @@ def loadData():
     train_labels, valid_labels, test_labels = np.array(train_labels), np.array(valid_labels), np.array(test_labels)
     return train_data, train_labels, valid_data, valid_labels, test_data, test_labels
 
-def conv_connected(X, filter_shape, strides, name, padding='SAME', activate_func=tf.nn.elu, pool_func=tf.nn.max_pool, ksize=None, pstrides=None, ppadding='SAME'):
+def conv_connected(X, filter_shape, feature_maps, strides, name, padding='SAME', activate_func=tf.nn.elu, pool_func=tf.nn.max_pool, ksize=None, pstrides=None, ppadding='SAME', normalize_func=tf.nn.lrn):
+    input_shape = int(X.get_shape()[-1])
+    filter_shape = (filter_shape,) * 2 + (input_shape, feature_maps,)
+    strides = (1,) + (strides,) * 2 + (1,)
     with tf.name_scope(name):
         with tf.variable_scope(name) as scope:
             try:
@@ -44,8 +48,11 @@ def conv_connected(X, filter_shape, strides, name, padding='SAME', activate_func
                 filter = tf.get_variable('weight')
                 biases = tf.get_variable('biases')
         result = tf.nn.conv2d(X, filter, strides, padding) + biases
+        if normalize_func: conv = normalize_func(result)
         if activate_func: result = activate_func(result)
         if pool_func and ksize and pstrides and ppadding:
+            ksize = (1,) + (ksize,) * 2 + (1,)
+            pstrides = (1,) + (pstrides,) * 2 + (1,)
             result = pool_func(result, ksize, pstrides, ppadding)
         return result
 
@@ -76,6 +83,7 @@ def fully_connected(X, neuron_number, name, batch_norm=True, activate_func=tf.nn
         result = tf.matmul(X, weights) + biases
         if activate_func: result = activate_func(result)
         if dropout: result = tf.nn.dropout(result, keep_prob=keep_prob)
+        else: result = tf.nn.dropout(result, 1)
         return result
 
 def get_batch_data(data, batch_num, batch_size):
@@ -88,10 +96,9 @@ def get_batch_data(data, batch_num, batch_size):
         second = data[:(batch_size  + lowerbound) % len(data)]
         return np.concatenate((first, second))
 
-batch_size = 128
+batch_size = 64
 num_labels = 10 
 patch_size = 3
-beta = 0.01
 
 train_data, train_labels, valid_data, valid_labels, test_data, test_labels = loadData()
 
@@ -106,16 +113,19 @@ with graph.as_default():
 
     def model(input, dropout=True):
         with tf.name_scope('dnn'):
-            conv = conv_connected(input, (1, 1, img_rgb, 32), strides=[1,1,1,1], name='conv0')
-            conv = tf.nn.lrn(conv)
-            conv = conv_connected(conv, (patch_size, patch_size, 32, 64), strides=[1, 1, 1, 1], name='conv1', ksize=[1, 2, 2, 1], pstrides=[1, 2, 2, 1])
-            conv = tf.nn.lrn(conv)
-            conv = conv_connected(conv, (patch_size, patch_size, 64, 128), strides=[1, 2, 2, 1], name='conv2', ksize=[1, 2, 2, 1], pstrides=[1, 2, 2, 1])
-            conv = tf.nn.lrn(conv)
+            conv = conv_connected(input, 1, 32, strides=1, name='conv0_p', activate_func=None, normalize_func=None)
+            conv = conv_connected(conv, patch_size, 32, strides=1, name='conv0', ksize=3, pstrides=2)
+            conv = conv_connected(conv, 1, 64, strides=1, name='conv1_p', activate_func=None, normalize_func=None)
+            conv = conv_connected(conv, patch_size, 64, strides=1, name='conv1', ksize=3, pstrides=2)
+            conv = conv_connected(conv, 1, 128, strides=1, name='conv2_p', activate_func=None, normalize_func=None)
+            conv = conv_connected(conv, patch_size, 128, strides=1, name='conv2', ksize=3, pstrides=2)
+            conv = conv_connected(conv, 1, 256, strides=1, name='conv3_p', activate_func=None, normalize_func=None)
+            conv = conv_connected(conv, patch_size, 256, strides=1,  name='conv3', ksize=3, pstrides=2)
             shape = conv.get_shape().as_list()
-            fully_0 = tf.reshape(conv, [shape[0], shape[1] * shape[2] * shape[3]])
-            fully = fully_connected(fully_0, 512, name='layer1', dropout=dropout)
-            fully = fully_connected(fully, 256, name='layer2', dropout=dropout)
+            fully = tf.reshape(conv, [shape[0], shape[1] * shape[2] * shape[3]])
+            fully = fully_connected(fully, 1024, name='layer0', dropout=dropout, keep_prob=0.3)
+            fully = fully_connected(fully, 512, name='layer1', dropout=dropout, keep_prob=0.3)
+            fully = fully_connected(fully, 256, name='layer2', dropout=dropout, keep_prob=0.4)
             fully = fully_connected(fully, 128, name='layer3', dropout=dropout)
             fully = fully_connected(fully, 80, name='layer4', dropout=dropout) 
             logits = fully_connected(fully, 10, 'logits', activate_func=None, dropout=False, keep_prob=1)
@@ -148,22 +158,25 @@ with graph.as_default():
 
     saver = tf.train.Saver()
 
-epoches = 4501
+epoches = 9001
 file_writer = tf.summary.FileWriter(logdir)
-learning_r = 0.01
+learning_r = 0.0007#0.0007 was great
 
 with tf.Session(graph=graph) as sess:
     tf.global_variables_initializer().run()
     for epoch in range(epoches):
-        batch_data = get_batch_data(train_data, batch_size=batch_size, batch_num=epoch)
-        batch_labels = get_batch_data(train_labels, batch_size=batch_size, batch_num=epoch)
-        _, training_loss = sess.run([optimizer, loss_s], feed_dict={tf_train: batch_data, tf_train_labels: batch_labels, learning_rate: learning_r})
-        if epoch % 500 == 0: 
-            file_writer.add_summary(training_loss, epoch)
-            valid_l, valid_loss, v_accu = sess.run([v_loss, loss_v, v_accuracy])
-            print(epoch, 'Valid loss', valid_l, 'Accuracy', '{}%'.format(v_accu * 100))
-            file_writer.add_summary(valid_loss, epoch)
-            file_writer.add_summary(training_loss, epoch)
+        try:
+            batch_data = get_batch_data(train_data, batch_size=batch_size, batch_num=epoch)
+            batch_labels = get_batch_data(train_labels, batch_size=batch_size, batch_num=epoch)
+            _, training_loss = sess.run([optimizer, loss_s], feed_dict={tf_train: batch_data, tf_train_labels: batch_labels, learning_rate: learning_r})
+            if epoch % 500 == 0: 
+                file_writer.add_summary(training_loss, epoch)
+                valid_l, valid_loss, v_accu = sess.run([v_loss, loss_v, v_accuracy])
+                print(epoch, 'Valid loss', valid_l, 'Accuracy', '{}%'.format(v_accu * 100))
+                file_writer.add_summary(valid_loss, epoch)
+                file_writer.add_summary(training_loss, epoch)
+        except KeyboardInterrupt:
+            sys.exit(0)
         #saver.save(sess, 'model/cifar10_partly.ckpt')
     print('\nTest case:')
     test_ac, test_l = sess.run([t_accuracy, t_loss])
